@@ -1,18 +1,18 @@
 
 import sys
-import gym
+import gymnasium as gym
 import random
 import numpy as np
 
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import RFNet
+from algo.model import RFNet, ACNet
 from tensorboardX import SummaryWriter
 
 
 from algo.model_utils import Memory
-from configs.config_Qnet import env_name, goal_score, log_interval, device, lr, gamma
+from configs.configs import ACConfig, build_default_configs
 from utils.train_utils import save_train_plot
 
 def set_seeds(env, seed = 42):
@@ -24,7 +24,8 @@ def set_seeds(env, seed = 42):
 
 
 
-def main():
+def main(args):
+    env_name = "CartPole-v1"
     seed = 42
     env = gym.make(env_name)
     set_seeds(env, seed=seed)
@@ -35,13 +36,13 @@ def main():
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = RFNet(num_inputs, num_actions)
+    net = ACNet(num_inputs, num_actions)
     model_name = net.model_name
 
-    optimizer = optim.Adam(net.parameters(), lr=lr)
+    optimizer = optim.Adam(net.parameters(), lr=args.lr)
     writer = SummaryWriter('logs')
 
-    net.to(device)
+    net.to(args.device)
     net.train()
     running_score = 0
     steps = 0
@@ -55,7 +56,7 @@ def main():
 
         score = 0
         state, _ = env.reset()
-        state = torch.Tensor(state).to(device)
+        state = torch.Tensor(state).to(args.device)
         state = state.unsqueeze(0)
 
         while not done:
@@ -69,7 +70,7 @@ def main():
             else:
                 next_state, reward, done, _ = step_out
 
-            next_state = torch.Tensor(next_state).to(device)
+            next_state = torch.Tensor(next_state).to(args.device)
             next_state = next_state.unsqueeze(0)
 
             mask = 0 if done else 1
@@ -82,7 +83,7 @@ def main():
             score += reward# reward是环境给的只有0-1代表是否还活着
             state = next_state
 
-        loss = RFNet.train_model(net, memory.sample(), optimizer, gamma)
+        loss = ACNet.train_model(net, memory.pop(), optimizer, args.gamma)
         loss_history.append(float(loss.item()))
             
 
@@ -91,17 +92,18 @@ def main():
         # 游戏就赢了
         running_score = 0.99 * running_score + 0.01 * score
         reward_history.append(float(running_score))
-        if e % log_interval == 0:
+        if e % args.log_interval == 0:
             print('{} episode | score: {:.2f}'.format(
                 e, running_score))
             writer.add_scalar('log/score', float(running_score), e)
             writer.add_scalar('log/loss', float(loss), e)
 
-        if running_score > goal_score:
+        if running_score > args.goal_score:
             break
 
     save_train_plot(loss_history, reward_history, model_name, seed)
 
 
 if __name__=="__main__":
-    main()
+    args = build_default_configs(ACConfig)
+    main(args)
