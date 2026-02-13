@@ -10,6 +10,9 @@ class Memory(object):
     def push(self, state, next_state, action, reward, mask):
         self.memory.append(Transition(state, next_state, action, reward, mask))
 
+    def pop(self):
+        return self.memory.popleft()
+
     def sample(self):
         memory = self.memory
         return Transition(*zip(*memory)) 
