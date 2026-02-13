@@ -49,8 +49,9 @@ def main(args):
     loss = 0
     reward_history = []
     loss_history = []
+    episodes = 3000
 
-    for e in range(3000):
+    for e in range(episodes):
         done = False
         memory = Memory()
 
@@ -80,7 +81,7 @@ def main(args):
             action_one_hot[action] = 1
             memory.push(state, next_state, action_one_hot, reward, mask)
     
-            score += reward# reward是环境给的只有0-1代表是否还活着
+            score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
         loss = ACNet.train_model(net, memory.pop(), optimizer, args.gamma)
