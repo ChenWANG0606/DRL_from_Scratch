@@ -161,7 +161,140 @@
 ![img_v3_02us_007404c6-c47f-4b23-8ff7-750ea65e8d5g](assets/img_v3_02us_007404c6-c47f-4b23-8ff7-750ea65e8d5g.jpg)
 
 5. 状态价值函数：对于马尔科夫奖励过程，状态价值函数被定义成回报的期望
+   - ![img_v3_02ut_aa6f913d-1784-42b8-bd89-3874d0384cbg](assets/img_v3_02ut_aa6f913d-1784-42b8-bd89-3874d0384cbg.jpg)
+   - G是折扣回报，对折扣回报取期望
+6. 贝尔曼方程
+   - 从价值函数中可以推导出贝尔曼方程$$V(s) = R(s) + \gamma\sum_{s'\in S}p(s'|s)V(s')$$
+   - 贝尔曼方程定义了当前状态与未来状态之间的关系
+7. 蒙特卡洛奖励过程的求解：可以看到，状态的价值来自于未来回报的期望，回报的不确定性来自于状态转移，对于未知的模型（状态转移函数，奖励）应该如何计算期望呢
+   - 蒙特卡洛采样：生成很多轨迹，然后取平均值，模拟出每个状态的价值
+   - 动态规划
+      - 解析解：适合状态空间小
+      - 迭代法
+   - 时序差分学习：动态规划和蒙特卡洛采样的一种结合
+
+7. 蒙特卡洛方法：
+
+   - 方法：
+
+     - 从某个状态开始，把小船放到状态转移矩阵里边，让它随波逐流的产生轨迹
+
+     - 计算轨迹的折扣奖励-回报g
+
+     - 将每个状态的回报在多条轨迹上累加起来，得到G
+
+     - 用G除以轨迹数量得到某个状态的平均价值V
+
+     - ![img_v3_02ut_8358c0a6-745b-4c9e-aea1-eda95ac7313g](assets/img_v3_02ut_8358c0a6-745b-4c9e-aea1-eda95ac7313g.jpg)
+
+     - ```python
+       # ===== 离线统计容器 =====
+       Returns = defaultdict(list)   # state -> [G1, G2, ...]
+       V = defaultdict(float)        # state -> value estimate
+       
+       # ===== 1. 采样所有 episodes =====
+       for e in range(episodes):
+       
+           state = env.reset()
+           done = False
+       
+           trajectory = []   # [(state, reward), ...]
+       
+           # ---- 生成一条完整轨迹 ----
+           while not done:
+               action = agent.take_action(state)
+       
+               next_state, reward, terminated, truncated, _ = env.step(action)
+               done = terminated or truncated
+       
+               trajectory.append((state, reward))
+               state = next_state
+       
+           # ===== 2. 计算该轨迹的回报 G =====
+           g = 0
+           visited_states = set()   # First-Visit MC
+       
+           for t in reversed(range(len(trajectory))):
+               state_t, reward_t = trajectory[t]
+       
+               g = reward_t + gamma * g
+       
+               # ===== 3. 离线累加回报 =====
+               if state_t not in visited_states:
+                   Returns[state_t].append(g)
+                   visited_states.add(state_t)
+       
+       # ===== 4. 所有 episodes 结束后，统一计算平均价值 =====
+       for state in Returns:
+         	G = sum(Returns[state])
+           N_traj = len(Returns[state])
+           V[state] =  G / N_traj
+       
+       return V
+       ```
+
+8. 动态规划：
+
+   - 解析解：由于贝尔曼方程可以证明最终会收敛，因此两次迭代之间V值应当相等，可以结合状态转移函数结合贝尔曼方程写出矩阵形式求解
+
+     ![img_v3_02ut_2ca8d1bd-16e2-47ec-b263-bdf0b10c1e6g](assets/img_v3_02ut_2ca8d1bd-16e2-47ec-b263-bdf0b10c1e6g.jpg)
+
+   - 迭代法：通过动态规划迭代贝尔曼方程，直到价值函数收敛
+
+     - 由于解析解求逆在状态空间很大的情况下不可行，需要使用迭代法逐步求解
+     - bootstrap自举：基于后继状态价值的估计来更新现在状态价值的估计
+       - 由于是更具其他估算值来更新估算值，因此称为自举
+     - 贝尔曼更新：使用bootstrap方法不断更新贝尔曼方程，当最后一个状态和上一次迭代区别不大时，停止更新![img_v3_02ut_c77a99d0-ffaf-4138-9966-766af542c01g](../../../../Library/Application Support/LarkShell/sdk_storage/ad7b6c64e09b317f8e06f4cc7fc6484c/resources/images/img_v3_02ut_c77a99d0-ffaf-4138-9966-766af542c01g.jpg)
+
+   - ```
+     		V = defaultdict(lambda: float("inf"))   # V(s) ← ∞
+         V_new = defaultdict(float)              # V'(s) ← 0
+     
+         for s in states:
+             V[s] = float("inf")
+             V_new[s] = 0.0
+     
+         # ===== 2. 迭代直到收敛 =====
+         while True:
+     
+             # 3. V ← V'
+             for s in states:
+                 V[s] = V_new[s]
+     
+             delta = 0  # 用来计算 ||V - V'|| 
+     
+             # 4. Bellman 更新
+             for s in states:
+     
+                 expected_value = 0
+     
+                 for s_next in states:
+                     prob = P[s][s_next]
+                     expected_value += prob * V[s_next]
+     
+                 V_new[s] = R[s] + gamma * expected_value
+     
+                 delta = max(delta, abs(V_new[s] - V[s]))
+     
+             # 2. 判断收敛
+             if delta < epsilon:
+                 break
+     
+         # 6. 返回
+         return V_new
+     ```
+
+
+
+## 马尔科夫决策过程
+
+1. 之前的概念中没有引入智能体决策，而是让智能体在环境中随波逐流，因此奖励仅仅依赖环境的不确定性
+2. 马尔科夫决策过程：引入决策，同时在状态转移条件中引入动作，未来的状态不仅依赖于当前状态，也依赖于智能体采取的动作
    - 
+
+
+
+
 
 
 

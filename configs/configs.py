@@ -34,6 +34,17 @@ def build_default_configs(config_cls: Type):
     config = config_cls(**vars(args))
     return config
 
+@dataclass
+class Config:
+    gamma: float = 0.99
+    lr: float = 0.001
+    log_interval: int = 10
+    device: torch.device = (
+        torch.device("mps")
+        if torch.backends.mps.is_available()
+        else torch.device("cpu")
+    )
+
 
 @dataclass
 class RFConfig:
