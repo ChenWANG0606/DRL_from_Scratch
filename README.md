@@ -163,9 +163,11 @@
 5. 状态价值函数：对于马尔科夫奖励过程，状态价值函数被定义成回报的期望
    - ![img_v3_02ut_aa6f913d-1784-42b8-bd89-3874d0384cbg](assets/img_v3_02ut_aa6f913d-1784-42b8-bd89-3874d0384cbg.jpg)
    - G是折扣回报，对折扣回报取期望
+
 6. 贝尔曼方程
    - 从价值函数中可以推导出贝尔曼方程$$V(s) = R(s) + \gamma\sum_{s'\in S}p(s'|s)V(s')$$
    - 贝尔曼方程定义了当前状态与未来状态之间的关系
+
 7. 蒙特卡洛奖励过程的求解：可以看到，状态的价值来自于未来回报的期望，回报的不确定性来自于状态转移，对于未知的模型（状态转移函数，奖励）应该如何计算期望呢
    - 蒙特卡洛采样：生成很多轨迹，然后取平均值，模拟出每个状态的价值
    - 动态规划
@@ -173,7 +175,7 @@
       - 迭代法
    - 时序差分学习：动态规划和蒙特卡洛采样的一种结合
 
-7. 蒙特卡洛方法：
+8. 蒙特卡洛方法：采样大量的轨迹，计算所有轨迹的真实回报，然后计算平均值
 
    - 方法：
 
@@ -187,7 +189,14 @@
 
      - ![img_v3_02ut_8358c0a6-745b-4c9e-aea1-eda95ac7313g](assets/img_v3_02ut_8358c0a6-745b-4c9e-aea1-eda95ac7313g.jpg)
 
-     - ```python
+     - first_visit v.s. every visit：如果我们多次访问同一个状态，是否该每次奖励都计算？
+       
+       - first_visit：只计算第一次访问的时候
+       - every_visit：每次访问都计算奖励
+       
+     - 
+
+       ```python
        # ===== 离线统计容器 =====
        Returns = defaultdict(list)   # state -> [G1, G2, ...]
        V = defaultdict(float)        # state -> value estimate
@@ -233,7 +242,63 @@
        return V
        ```
 
-8. 动态规划：
+   - 增量均值：
+
+     - 如果有样本$$x_1,x_2,...,x_t$$，可以把经验均值转化为增量均值
+
+     - ![img_v3_02ut_e3665b00-4905-4e06-8687-86b11d2fd39g](assets/img_v3_02ut_e3665b00-4905-4e06-8687-86b11d2fd39g.jpg)
+
+     - ```python
+       # ===== 离线统计容器 =====
+       Returns = defaultdict(list)   # state -> [G1, G2, ...]
+       V = defaultdict(float)        # state -> value estimate
+       N = defaultdict(int)        # state -> visit count
+       # ===== 1. 采样所有 episodes =====
+       for e in range(episodes):
+       
+           state = env.reset()
+           done = False
+       
+           trajectory = []   # [(state, reward), ...]
+       
+           # ---- 生成一条完整轨迹 ----
+           while not done:
+               action = agent.take_action(state)
+       
+               next_state, reward, terminated, truncated, _ = env.step(action)
+               done = terminated or truncated
+       
+               trajectory.append((state, reward))
+               state = next_state
+       
+           # ===== 2. 计算该轨迹的回报 G =====
+           g = 0
+           visited_states = set()   # First-Visit MC
+       
+           for t in reversed(range(len(trajectory))):
+               state_t, reward_t = trajectory[t]
+       
+               g = reward_t + gamma * g
+       
+               # ===== 3. 离线累加回报 =====
+               if state_t not in visited_states:
+                   N[state_t] += 1
+       
+                   # 增量均值公式
+                   V[state_t] += (g - V[state_t]) / N[state_t]
+       
+                   visited_states.add(state_t)
+       
+       				# ===== 4. 计算增量均值=====
+               for state in Returns:
+                 V[state] +=  (g - Returns[state]) / t 
+       
+       return V
+       ```
+
+     - 
+
+9. 动态规划：
 
    - 解析解：由于贝尔曼方程可以证明最终会收敛，因此两次迭代之间V值应当相等，可以结合状态转移函数结合贝尔曼方程写出矩阵形式求解
 
@@ -249,37 +314,37 @@
    - ```
      		V = defaultdict(lambda: float("inf"))   # V(s) ← ∞
          V_new = defaultdict(float)              # V'(s) ← 0
-     
+       
          for s in states:
              V[s] = float("inf")
              V_new[s] = 0.0
-     
+       
          # ===== 2. 迭代直到收敛 =====
          while True:
-     
+       
              # 3. V ← V'
              for s in states:
                  V[s] = V_new[s]
-     
+       
              delta = 0  # 用来计算 ||V - V'|| 
-     
+       
              # 4. Bellman 更新
              for s in states:
-     
+       
                  expected_value = 0
-     
+       
                  for s_next in states:
                      prob = P[s][s_next]
                      expected_value += prob * V[s_next]
-     
+       
                  V_new[s] = R[s] + gamma * expected_value
-     
+       
                  delta = max(delta, abs(V_new[s] - V[s]))
-     
+       
              # 2. 判断收敛
              if delta < epsilon:
                  break
-     
+       
          # 6. 返回
          return V_new
      ```
@@ -290,7 +355,92 @@
 
 1. 之前的概念中没有引入智能体决策，而是让智能体在环境中随波逐流，因此奖励仅仅依赖环境的不确定性
 2. 马尔科夫决策过程：引入决策，同时在状态转移条件中引入动作，未来的状态不仅依赖于当前状态，也依赖于智能体采取的动作
-   - 
+   - 状态转移函数：$$p(s_{t+1}=s'|s_t = s,a_t = a)$$
+   - 马尔科夫决策过程满足条件：$$p(s_{t+1}|s_t,a_t) = p(s_{t+1}|h_t,a_t)$$
+   - 奖励函数：$$R(s_t = s,a_t = a) = E[r_t|s_t=s,a_t=a]$$
+
+3. 马尔科夫决策过程中的策略
+   - 策略：某个状态下该采取的动作
+     - $$\pi(a|s) = p(a_t = a|s_t=s)$$
+   - 假设策略函数平稳，不同时间点，采取的动作其实都是在对策略函数进行采样
+4. 已知马尔科夫决策过程和策略pi，马尔科夫决策过程可以转换为马尔科夫奖励过程
+   - 策略已知，对动作求和消去，就可以得到没有动作的马尔科夫奖励过程
+     - $$P_{\pi}(s'|s) = \sum_{a\in A}\pi(a|s)p(s'|s,a)$$
+   - 奖励函数同理
+     - $$r_{\pi}(s) = \sum_{a\in A}\pi(a|s)r(s,a)$$
+5. 马尔科夫奖励过程和决策过程的区别
+   - 马尔可夫过程/马尔可夫奖励过程的状态转移是直接决定的。比如当前状态是 s，那么直接通过转移概率决定下一个状态是什么。
+   - 但对于马尔可夫决策过程，它的中间多了一层动作 a ，即智能体在当前状态的时候，首先要决定采取某一种动作，这样我们会到达某一个黑色的节点。到达这个黑色的节点后，因为有一定的不确定性，所以当智能体当前状态以及智能体当前采取的动作决定过后，智能体进入未来的状态其实也是一个概率分布。
+   - 在当前状态与未来状态转移过程中多了一层决策性，这是马尔可夫决策过程与之前的马尔可夫过程/马尔可夫奖励过程很不同的一点。在马尔可夫决策过程中，动作是由智能体决定的， 智能体会采取动作来决定未来的状态转移。
+   - 为什么选了a不会进入一个确定的状态：超级玛丽向前走的时候，环境中的障碍也在变化，因此最终得到的状态也是不确定的，状态是有环境和智能体的行动共同决定的
+   - ![img_v3_02ut_097cc86a-8dbf-4cb6-9150-68bf17fa13dg](assets/img_v3_02ut_097cc86a-8dbf-4cb6-9150-68bf17fa13dg.jpg)
+
+
+
+6. 状态动作价值函数-Q函数：在某个状态采取某个动作能得到的期望回报
+
+   - ![img_v3_02ut_de420802-7131-453d-8420-872a70a40f9g](assets/img_v3_02ut_de420802-7131-453d-8420-872a70a40f9g.jpg)
+
+   - 由于这里的期望也是基于策略的，通过对策略函数进行一个加和，就可以得到他的价值
+   - ![img_v3_02ut_53470210-f904-4663-9aa2-198c8072899g](assets/img_v3_02ut_53470210-f904-4663-9aa2-198c8072899g.jpg)
+
+   - 另外从Q函数中可以推导出其贝尔曼方程
+   - ![img_v3_02ut_ed0b89ea-252c-4017-9e15-bd5fb6400d6g](assets/img_v3_02ut_ed0b89ea-252c-4017-9e15-bd5fb6400d6g.jpg)
+
+7. 贝尔曼期望方程：定义了当前状态和未来状态之间的关联
+
+8. 策略评估：在马尔科夫奖励过程中，为了计算值，采用了随波逐流的方式。在策略评估中，智能体会进行决策
+
+   - 通过反复迭代同样可以获得状态价值
+
+9. 预测和控制
+
+   - 预测：输入马尔科夫决策过程$$<S,A,P,R,\gamma>$$，和策略$$\pi$$，输出价值函数$$V_\pi$$
+     - 计算每个状态的价值
+   - 控制：输入马尔科夫决策过程$$<S,A,P,R,\gamma>$$输入出最佳价值函数$$V*$$和最佳策略$$\pi*$$
+     - 寻找一个最佳策略，然后输出最佳价值函数和最佳策略
+   - 预测和控制是递进关系，先解决预测问题然后解决控制问题
+
+10. 马尔科夫决策过程控制
+
+    - 通过策略评估和马尔科夫决策过程，我们可以估算出价值函数的值
+
+    - 如果只有马尔科夫决策过程，如何找出最佳策略？
+
+    - 最佳价值函数：$$V*(s) = \underset{\pi}{max}V_{\pi}(s)$$
+
+      - 搜索一种策略pi让每个状态价值最大，$$V^*$$就是达到每一个状态，价值最大的情况
+      - $$\pi^*(s) = \underset{\pi}{argmax}= V_{\pi}(s)$$
+
+    - 获得最佳价值函数之后，可以通过对Q函数最大化来得到最佳策略
+
+      - ![img_v3_02ut_2225f14e-c8f7-4f4c-b3a2-c13e9ee6c34g](assets/img_v3_02ut_2225f14e-c8f7-4f4c-b3a2-c13e9ee6c34g.jpg)
+
+      - 如果能优化出Q函数$$Q*(s,a)$$，就可以直接在Q函数中提取处让Q函数最大化的动作，从而提取处最佳策略
+
+11. 获得一个最佳策略
+
+    - 对于一个实现定好的马尔科夫决策过程，当智能体采取最佳策略的时候，最佳策略一般是确定而且平稳的，但不一定是唯一的
+    - 获得最佳策略的方法
+      - 穷举
+      - 策略迭代
+      - 价值迭代
+
+12. 策略迭代：两个步骤迭代进行![img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg](assets/img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg.jpg)
+
+    - 策略评估：当优化策略pi时，先保证策略pi不变，然后估计他的价值
+    - 策略改进：得到状态价值函数后，可以进一步推算出它的Q函数，得到Q函数后直接对Q函数进行最大化，通过贪心搜索来进一步改进策略
+      - 得到状态价值函数后，可以通过奖励函数以及状态转移函数来计算Q函数
+        - $$Q_{\pi_i}(s,a) = R(s,a)+\gamma\sum_{s\in S}{p(s|s,a)V_{\pi_i}(s')}$$
+      - 对每个状态，策略改进会得到新一轮策略，对每个状态，取使它得到最大值的动作
+      - ![img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g](assets/img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g.jpg)
+
+13. 价值迭代：
+
+    - 最优性原理：当且仅当所有子问题最优，原问题最优
+    - 迭代贝尔曼最优方程，使价值函数迭代为最佳价值函数
+      - ![img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g](assets/img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g.jpg)
+    - 价值迭代的工作类似于反向传播，在一个轨迹中，获得奖励，并将奖励传播到每一个位置，最终在推理的时候作为依据
 
 
 
