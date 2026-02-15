@@ -491,7 +491,6 @@
       - 穷举
       - 策略迭代
       - 价值迭代
-
 12. 策略迭代：两个步骤迭代进行![img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg](assets/img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg.jpg)
 
     - 策略评估：当优化策略pi时，先保证策略pi不变，然后估计他的价值
@@ -502,18 +501,425 @@
         - $$Q_{\pi_i}(s,a) = R(s,a)+\gamma\sum_{s\in S}{p(s|s,a)V_{\pi_i}(s')}$$
       - 对每个状态，策略改进会得到新一轮策略，对每个状态，取使它得到最大值的动作
       - ![img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g](assets/img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g.jpg)
-
 13. 价值迭代：
 
     - 最优性原理：当且仅当所有子问题最优，原问题最优
     - 迭代贝尔曼最优方程，使价值函数迭代为最佳价值函数
       - ![img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g](assets/img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g.jpg)
     - 价值迭代的工作类似于反向传播，在一个轨迹中，获得奖励，并将奖励传播到每一个位置，最终在推理的时候作为依据
-    - 
+
+14. 同策略与异策略
+
+    - 策略：输入状态，给出动作
+
+    - 行为策略：在探索环境（choose_action函数）中使用的策略
+      - 输入state，argmaxQ值的a
+      - epsilon贪婪：输入state，随机产生一个a
+    - 目标策略：实际要学习（update函数）的策略
+      - update中时序差分下一步要用到的a
+        - 可以是argmaxQ值的a
+        - 也可以是行为策略实际生成的a
+
+    - 同策略：优化的目标策略就是实际执行的行为策略
+
+      - 优化Q表格时，使用下一步实际将要执行的动作来优化Q表格，update的$a_{t+1}$必须是choose_action产生的下一步真正要优化的$a_{t+1}$
+
+      - 由于优化的策略是实际执行的策略，因此模型会考虑到不确定性，偏保守
+
+    - 异策略：行为策略可以大胆探索所有可能轨迹，采集数据交给目标策略学习，
+
+      - 由于update的策略和choose_action采取的策略不必一致，给目标策略时不需要$a_{t+1}$，
+
+      - 目标策略优化的时候，Q学习不会管$a_{t+1}$是什么，而是只选取奖励最大的策略
+
+
+
+## 悬崖寻路
+
+1. 介绍：悬崖寻路是一个迷宫类问题，在一个网格世界中，左下角为起点，右下角为终点，目标是移动智能体到达终点位置，智能体每次可以上下左右在4个方向中选择一个，每移动一步就会得到-1单位的奖励。起终点之间是一段悬崖,即编号为37~46的网格,智能体移动过程中会有如下的限制:
+
+   - 智能体不能移出网格,如果智能体想执行某个动作移出网格,那么这一步智能体不会移动,但是
+     这个操作依然会得到-1W单位的奖励;
+   - 如果智能体"掉入悬崖",会立即回到起点位置,并得到-100单位的奖励
+   - 当智能体移动到终点时,该回合结束,该回合总奖励为各步类奖励之和
+   - 我们的目标是以最少的步数到达终点,容易看出最少需要133步智能体才能从起点到终点,因此最佳算法收敛的情况下,每回合的总奖励应该是-13,这样人工分析出期望的奖励也便于我们判断算法的收敛情况从而做出相应调整。
+
+    ![image-20260215171139344](assets/image-20260215171139344.png)
+
+2. 现在我们可以在代码中定义环境,如下:
+
+   ```python
+   import gym
+   import numpy as np
+   from config import Config as cfg
+   from tqdm import tqdm
+   import matplotlib.pyplot as plt
+   from collections import defaultdict
+   import random
+   import pygame
+   import math
+   
+   env = gym.make("CliffWalking-v0")
+   n_states = env.observation_space.n
+   n_action = env.action_space.n
+   
+   print(n_states)
+   print(n_action)
+   
+   state, _ = env.reset()
+   print(state)
+   ```
+
+3. 强化学习的基本思路如下，我们将在这个基础上针对不同算法做一些修改
+
+   - 初始化环境和智能体;
+   - 对于每个回合,智能体选择动作;
+   - 环境接收动作并反馈下一个状态和奖励;
+   - 智能体进行策略更新(学习);
+   - 多个回合之后算法收敛保存模型以及做后续的分析、画图等。
+   - 可以看到智能体的基本方法是choose_action和update
+
+4. 基本参数
+
+   ```python
+   from dataclasses import dataclass
+   @dataclass
+   class Config:
+       env_name: str = 'CliffWalking-v0'
+       gamma: float = 0.9
+       alpha: float = 0.1
+       epsilon: float = 0.1
+       n_episodes: int = 500
+   ```
+
+   
 
 ## Sarsa：同策略时序差分控制
 
-1. 
+1. Sarsa是一种同策略时序差分控制，我们每次使用下一步将要执行的动作的Q值$Q(s_{t+1},a_{t+1})$了来更新当前
+
+2. 时序差分的目标是
+
+   - $r_{t+1}+\gamma Q(s_{t+1},a_{t+1})$
+
+   - ```python
+     target = reward + self.gamma * self.Q_table[next_state][next_action]
+     ```
+
+3. Sarsa的更新方法：时序差分更新Q
+
+   - alpha代表学习率
+   - gamma代表折扣因子
+   - Q增量学习形式：
+
+   - ![image-20260215172351882](assets/image-20260215172351882.png)
+   - ![image-20260215172623657](assets/image-20260215172623657.png)****
+
+3. 初始化Q表格：可以随机初始化或者初始化为0，因为一开始我们并没有任何信息
+
+   - 最终Q表格将不断逼近真实的Q值
+
+4. 更新算法的输入：当前状态(state)、当前动作(action)、奖励(reward)、下一步状态(state)、下一步动作(action)、done，取头字母得到SARSA算法命名
+
+   - 根据时序差分，我们可以推得n步Sarsa，具体参考easy RL原书
+
+5. 动作选择： sarsa是一种同策略的学习，所以在训练时也要考虑探索，不能总是选最优动作，否则可能会陷入局部最优，无法发现更好的策略，我们加入epsilon贪心
+
+   - epsilon的概率我们选择随机走一步
+   - 否则我们选择Q值最大的动作
+
+6. epsilon衰减：
+
+   - 也由于是同策略sarsa，同时epsilon带来了不确定性（脚滑随机选择动作），在优化策略的时会尽量离悬崖远一点，保证即是有随机性也不掉下去，所以训练出来的模型总是奖励稍小，但更稳健，不会总是走悬崖边死了
+
+   - 为了解决这个问题，epsilon最好是递减的，最终不再探索。如果是常数，走悬崖边老是滑死了，模型就不敢靠边走了
+
+7. 代码实现
+
+   ```python
+   class SARSA():
+       def __init__(self, cfg, n_action, n_states):
+           self.gamma = cfg.gamma
+           self.alpha = cfg.alpha
+           self.epsilon_start = cfg.epsilon
+           self.epsilon_end = 0
+           self.action_space = n_action
+           self.observation_space = n_states
+           self.n_episodes = cfg.n_episodes
+           self.sample_count = 0
+           
+           # 初始化Q表
+           self.Q_table = defaultdict(lambda: np.zeros(self.action_space))
+   
+       # ε-贪心策略
+       def choose_action(self, state, train=True):
+           if not train:
+               return np.argmax(self.Q_table[state])
+           self.sample_count += 1
+           self.epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
+           math.exp(-1. * self.sample_count / self.n_episodes)
+           # self.epsilon = self.epsilon_start # 无法收敛到最优奖励
+   
+           
+           if random.uniform(0, 1) < self.epsilon:
+               action = random.randint(0, self.action_space - 1)
+           else:
+               action = np.argmax(self.Q_table[state])
+           return action
+   
+       # SARSA 更新 
+       # SARSA是同策略的，因此这里需要保证下一步动作是根据当前策略选择的，所以在update函数中需要传入下一步动作next_action
+       # self_sarsa错误的地方就在于下一步动作没有绑定,选择了贪心，这实际上跟像是Q-Learning
+       # 而贪心意味着，由于e贪心的随机性的存在，策略最终执行的动作不一定是选择的argmax
+       def update(self, state, action, reward, next_state, next_action, done):
+           predict = self.Q_table[state][action]
+           
+           if done:
+               target = reward
+           else:
+               target = reward + self.gamma * self.Q_table[next_state][next_action]
+           
+           self.Q_table[state][action] += self.alpha * (target - predict)
+   agent = SARSA(cfg, n_action, n_states)
+   
+   ```
+
+8. 进一步补全训练和测试代码
+
+   ```python
+   reward_history = []
+   ma_reward_history = [0]
+   
+   for episode in tqdm(range(cfg.n_episodes), desc="Training Episodes"):
+       
+       state, _ = env.reset()
+       action = agent.choose_action(state)   # 先选第一个动作
+       ep_reward = 0
+   
+       while True:
+           next_state, reward, terminated, truncated, _ = env.step(action)
+           done = terminated or truncated
+           
+           next_action = agent.choose_action(next_state)  # 下一步真实动作
+           
+           agent.update(state, action, reward, next_state, next_action, done)
+           
+           state = next_state
+           action = next_action  # 关键：动作向前滚动
+           
+           ep_reward += reward
+           
+           if done:
+               break
+   
+       reward_history.append(ep_reward)
+       
+       ma_reward_history.append(
+           0.9 * ma_reward_history[-1] + 0.1 * ep_reward
+       )
+       
+   # 推理模式
+   state, _ = env.reset()
+   ep_reward = 0
+   trajectory = []
+   
+   
+   while True:
+       action = agent.choose_action(state, train = False)
+       next_state, reward, terminated, truncated, _ = env.step(action)
+       done = terminated or truncated
+   
+       trajectory.append((state, action, reward))
+       state = next_state
+       ep_reward += reward
+   
+       if done:
+           break
+   
+   ```
+
+9. 结果：模型最终收敛到最佳奖励-13
+
+   ![image-20260215174224791](assets/image-20260215174224791.png)
+
+## Q-Learning异策略时序差分算法
+
+1. Q学习是一种异策略时序差分算法
+   - 行为策略：行为策略可以是一个随机的策略，但是我们并不希望策略完全随机，因此我们还是采用epsilon贪心，在Q表格的基础上来进行随机
+   - 目标策略直接在Q表格上使用贪心策略，取它下一步能得到的最佳动作
+     - $\pi(s_{t+1}) = \underset{a'}{argmax} Q(s_{t+1, a'})$
+2. Q学习：我们同样用时序差分的方式来更新Q表，不同的是我们使用目标策略更新Q值
+   - 时序差分的目标是：
+     - $$r_{t+1}+\gamma Q(s_{t+1}, A') = r_{t+1}+\gamma Q(s_{t+1}, argmax Q(s_{t+1}, a')= r_{t+1}+\gamma \underset{a'}{max} Q(s_{t+1},a')$$
+   - 将学习写成增量学习的形式
+     - ![image-20260215180442870](assets/image-20260215180442870.png)
+
+3. 代码实现
+
+   ```python
+   class QLearning():
+       def __init__(self, cfg, n_action, n_states):
+           self.gamma = cfg.gamma
+           self.alpha = cfg.alpha
+           self.epsilon = cfg.epsilon
+           self.action_space = n_action
+           self.observation_space = n_states
+           
+           # 初始化Q表
+           self.Q_table = defaultdict(lambda: np.zeros(self.action_space))
+   
+       # ε-贪心策略
+       def choose_action(self, state, train=True):
+           if not train:
+               return np.argmax(self.Q_table[state])
+           
+           if random.uniform(0, 1) < self.epsilon:
+               action = random.randint(0, self.action_space - 1)
+           else:
+               action = np.argmax(self.Q_table[state])
+           return action
+   
+       # Q-Learning 更新
+       # Q-Learning更新直接采用了贪心算法，这实际上代表了目标策略
+       # 而在训练选取动作时采用了ε-贪心策略，这代表了行为策略
+       def update(self, state, action, reward, next_state, done):
+           predict = self.Q_table[state][action]
+           
+           if done:
+               target = reward
+           else:
+               target = reward + self.gamma * np.max(self.Q_table[next_state])
+           
+           self.Q_table[state][action] += self.alpha * (target - predict)
+   agent = QLearning(cfg, n_action, n_states)
+   ```
+
+4. 补全训练和测试代码
+
+   ```python
+   reward_history = []
+   ma_reward_history = [0]
+   for episode in tqdm(range(cfg.n_episodes), desc="Training Episodes"):
+       state, _ = env.reset()
+       ep_reward = 0
+   
+       while True:
+           action = agent.choose_action(state)
+           next_state, reward, terminated, truncated, _  = env.step(action)
+           done = terminated or truncated
+           agent.update(state, action, reward, next_state, done)
+           state = next_state
+           ep_reward += reward
+           if done:
+               break
+       reward_history.append(ep_reward)
+       if ma_reward_history:
+           ma_reward_history.append(0.9 * ma_reward_history[-1] + 0.1 * ep_reward)
+   
+   # 推理模式
+   state, _ = env.reset()
+   ep_reward = 0
+   trajectory = []
+   
+   
+   while True:
+       action = agent.choose_action(state, train= False)
+       next_state, reward, terminated, truncated, _ = env.step(action)
+       done = terminated or truncated
+   
+       trajectory.append((state, action, reward))
+       state = next_state
+       ep_reward += reward
+   
+       if done:
+           break
+   
+   ```
+
+5. 结果：策略最终收敛到最佳奖励-13
+
+   ![image-20260215181236863](assets/image-20260215181236863.png)
+
+## 从一个错误的实现看两种算法的区别
+
+1. 看一个错误的实现
+
+   ```python
+   class Self_SARSA():
+       def __init__(self,cfg, n_action, n_states):
+           self.gamma = cfg.gamma
+           self.alpha = cfg.alpha
+           self.epsilon = cfg.epsilon
+           self.action_space = n_action
+           self.observation_space = n_states
+           self.Q_table = defaultdict(lambda: np.zeros(self.action_space))
+   
+   
+       def choose_action(self, state):
+           choice = self.Q_table[state]
+           action = np.argmax(choice)
+           return action
+   
+   
+       def update(self, state, action, reward, next_state, done):
+           next_action = self.choose_action(next_state)
+           self.Q_table[state][action] = self.Q_table[state][action] + self.alpha*(reward+self.gamma*self.Q_table[next_state][next_action]-self.Q_table[state][action])
+           
+   
+   
+   agent = Self_SARSA(cfg, n_action, n_states)
+   ```
+
+2. 这是一个错误的实现，虽然意外效果很好的收敛到了最优，但是这里实现问题颇多
+
+   - 没有采用epsilon贪婪，因此收敛飞快，可是这仅仅是因为问题很简单，没有太多探索也收敛到最优
+   - 这里虽然想实现Sarsa，但是更新的时候采用了在内部观察了next_action，但是这个action由于没有采用epsilon贪婪，实际上是argmax操作，等价于Q学习的更新。
+   - 如果使用了epsilon贪婪，由于动作加入了随机性，update内执行choose_action不一定是下一步真实执行的动作，这不满足sarsa，同时由于epsilon贪婪存在，执行的也不一定是argmax，因此得到的反而既不是Qlearning，也不是sarsa了
+     - 测试发现，如果不修改其他的情况下加入epsilon贪婪，训练无法收敛
+
+3. Sarsa V.S. Q-Learning
+
+   ![image-20260215183133483](assets/image-20260215183133483.png)
+
+   - 可以看到本质上Sarsa和Q-Learning的区别在于更新时采用的目标
+
+     - Sarsa需要是下一步实际执行的动作
+     - Q-Learning直接选择Q值最大的动作就行
+
+   - 在实现上
+
+     - Sarsa的更新需要在训练函数中提前计算出下一步动作，传入，保证执行的动作就是更新用到的动作
+     - Q-Learning直接选择Q值最大的动作，不需要传入下一步动作
+
+     ![image-20260215184156499](assets/image-20260215184156499.png)
+
+4. 最后再次对比同策略和异策略的区别
+
+   | **对比维度**        | **同策略（On-policy）**             | **异策略（Off-policy）**                 |
+   | ------------------- | ----------------------------------- | ---------------------------------------- |
+   | 代表算法            | **Sarsa**                           | **Q-learning**                           |
+   | 策略数量            | 1 个策略                            | 2 个策略                                 |
+   | 策略类型            | 学习策略 = 行为策略                 | 行为策略 ≠ 目标策略                      |
+   | 行为策略            | π（通常为 ε-贪心）                  | ε-贪心                                   |
+   | 目标策略            | π（同一个）                         | 贪心策略（max）                          |
+   | 是否分离学习与行为  | ❌ 不分离                            | ✅ 分离                                   |
+   | 与环境交互用的策略  | 当前学习的策略 π                    | 行为策略                                 |
+   | 用于更新 Q 的策略   | 当前执行的策略                      | 目标策略                                 |
+   | 是否需要兼顾探索    | ✅ 需要                              | ❌ 不需要                                 |
+   | 探索是否影响更新    | 是                                  | 否                                       |
+   | 更新是否取最大值    | ❌ 不取 max                          | ✅ 取 max                                 |
+   | 更新依据            | 实际执行的下一个动作                | 理论上的最优动作                         |
+   | 更新公式            | Q(s,a)←Q(s,a)+α[r+γQ(s',a')−Q(s,a)] | Q(s,a)←Q(s,a)+α[r+γ\max Q(s',a')−Q(s,a)] |
+   | 策略是否随训练变化  | 是（ε 逐渐减小）                    | 行为策略变，目标策略稳定                 |
+   | 策略稳定性          | 相对不稳定                          | 相对稳定                                 |
+   | 风险态度            | 保守                                | 激进                                     |
+   | 学习风格            | 现实主义                            | 理想主义                                 |
+   | 对噪声/探索的敏感性 | 高                                  | 低                                       |
+   | 收敛速度            | 较慢                                | 较快                                     |
+   | 收敛目标            | 当前策略的最优值                    | 全局最优策略                             |
+   | 悬崖行走表现        | 远离悬崖，走安全路径                | 贴近悬崖，走最短路径                     |
+   | 对失败的容忍度      | 低（避免高风险）                    | 高（允许探索失败）                       |
+   | 适用场景            | 高风险、对安全要求高                | 低风险、追求最优效率                     |
 
 
 
