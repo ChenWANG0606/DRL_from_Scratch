@@ -172,8 +172,10 @@
    - 蒙特卡洛采样：生成很多轨迹，然后取平均值，模拟出每个状态的价值
       - 有无模型都适用
       - 每次可以更新一个轨迹的状态
+      - 需要游戏有终止状态
       - 不要求马尔科夫环境
       - V高方差，低偏差：使用整个轨迹，累积了很多步地噪声和随机性，导致方差大，但由于是全局的采样，因此理论上是无偏的
+      - 蒙特卡洛通过多次统计，直接估计出每一个状态的可能价值
    - 动态规划
       - 解析解：适合状态空间小
       - 迭代法
@@ -181,8 +183,10 @@
       - 每次要更新所有状态
    - 时序差分学习：动态规划和蒙特卡洛采样的一种结合
       - 免模型
+      - 不要求游戏有终止，可以在线学习
       - 假设环境由马尔科夫性质，在马尔科夫环境下有更高的学习效率
       - V低方差，高偏差：使用了自举，随机性来自于下一步的奖励和下一个状态，因此每次更新方差更小，但是由于是自举（用的估计值），是有偏的
+      - 时序差分用一种类似反向传播的方法，将最终奖励的价值通过多个回合逐渐传播到每一个状态
    
 8. 蒙特卡洛方法：采样大量的轨迹，计算所有轨迹的真实回报，然后计算平均值
 
@@ -200,8 +204,9 @@
 
      - first_visit v.s. every visit：如果我们多次访问同一个状态，是否该每次奖励都计算？
        
-       - first_visit：只计算第一次访问的时候
        - every_visit：每次访问都计算奖励
+         - 问题：连续用高度相关的G更新，数值可能会抖动的很厉害
+       - first_visit：只计算第一次访问的时候记入returns
        
      - 
 
@@ -491,6 +496,7 @@
       - 穷举
       - 策略迭代
       - 价值迭代
+
 12. 策略迭代：两个步骤迭代进行![img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg](assets/img_v3_02ut_0075b821-6e24-471b-a6b7-faefbec8b9fg.jpg)
 
     - 策略评估：当优化策略pi时，先保证策略pi不变，然后估计他的价值
@@ -501,6 +507,7 @@
         - $$Q_{\pi_i}(s,a) = R(s,a)+\gamma\sum_{s\in S}{p(s|s,a)V_{\pi_i}(s')}$$
       - 对每个状态，策略改进会得到新一轮策略，对每个状态，取使它得到最大值的动作
       - ![img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g](assets/img_v3_02ut_36acc533-2de9-4b55-8495-e7a8aa4be56g.jpg)
+
 13. 价值迭代：
 
     - 最优性原理：当且仅当所有子问题最优，原问题最优
@@ -508,29 +515,51 @@
       - ![img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g](assets/img_v3_02ut_2d483250-0c3b-4840-8e06-36c569cd5f2g.jpg)
     - 价值迭代的工作类似于反向传播，在一个轨迹中，获得奖励，并将奖励传播到每一个位置，最终在推理的时候作为依据
 
-14. 同策略与异策略
+    
 
-    - 策略：输入状态，给出动作
 
-    - 行为策略：在探索环境（choose_action函数）中使用的策略
-      - 输入state，argmaxQ值的a
-      - epsilon贪婪：输入state，随机产生一个a
-    - 目标策略：实际要学习（update函数）的策略
-      - update中时序差分下一步要用到的a
-        - 可以是argmaxQ值的a
-        - 也可以是行为策略实际生成的a
 
-    - 同策略：优化的目标策略就是实际执行的行为策略
+# 表格型方法
 
-      - 优化Q表格时，使用下一步实际将要执行的动作来优化Q表格，update的$a_{t+1}$必须是choose_action产生的下一步真正要优化的$a_{t+1}$
+1. 表格型策略：策略最简单的表示是查表
 
-      - 由于优化的策略是实际执行的策略，因此模型会考虑到不确定性，偏保守
+2. 使用查找表的强化学习方法称为表格型方法
 
-    - 异策略：行为策略可以大胆探索所有可能轨迹，采集数据交给目标策略学习，
+   - 如蒙特卡洛、Q学习和Sarsa
+   - 记录所有状态和所有动作的Q值，然后遇到对应状态查自己该执行的动作
 
-      - 由于update的策略和choose_action采取的策略不必一致，给目标策略时不需要$a_{t+1}$，
+3. Q表格：一张状态-动作的表格
 
-      - 目标策略优化的时候，Q学习不会管$a_{t+1}$是什么，而是只选取奖励最大的策略
+   ![image-20260215190040960](assets/image-20260215190040960.png)
+
+   
+
+4. 同策略与异策略
+
+   - 策略：输入状态，给出动作
+
+     - 行为策略：在探索环境（choose_action函数）中使用的策略
+       - 输入state，argmaxQ值的a
+       - epsilon贪婪：输入state，随机产生一个a
+
+     - 目标策略：实际要学习（update函数）的策略
+       - update中时序差分下一步要用到的a
+         - 可以是argmaxQ值的a
+         - 也可以是行为策略实际生成的a
+
+
+     - 同策略：优化的目标策略就是实际执行的行为策略
+    
+       - 优化Q表格时，使用下一步实际将要执行的动作来优化Q表格，update的$a_{t+1}$必须是choose_action产生的下一步真正要优化的$a_{t+1}$
+    
+       - 由于优化的策略是实际执行的策略，因此模型会考虑到不确定性，偏保守
+
+
+   - 异策略：行为策略可以大胆探索所有可能轨迹，采集数据交给目标策略学习，
+
+     - 由于update的策略和choose_action采取的策略不必一致，给目标策略时不需要$a_{t+1}$，
+       - 目标策略优化的时候，Q学习不会管$a_{t+1}$是什么，而是只选取奖励最大的策略
+     
 
 
 
@@ -590,8 +619,9 @@
        alpha: float = 0.1
        epsilon: float = 0.1
        n_episodes: int = 500
+       epsilon_decay: int = 1000
    ```
-
+   
    
 
 ## Sarsa：同策略时序差分控制
@@ -645,7 +675,7 @@
            self.epsilon_end = 0
            self.action_space = n_action
            self.observation_space = n_states
-           self.n_episodes = cfg.n_episodes
+           self.epsilon_decay = cfg.epsilon_decay
            self.sample_count = 0
            
            # 初始化Q表
@@ -657,7 +687,7 @@
                return np.argmax(self.Q_table[state])
            self.sample_count += 1
            self.epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-           math.exp(-1. * self.sample_count / self.n_episodes)
+           math.exp(-1. * self.sample_count / self.epsilon_decay)
            # self.epsilon = self.epsilon_start # 无法收敛到最优奖励
    
            
@@ -754,7 +784,9 @@
    - 将学习写成增量学习的形式
      - ![image-20260215180442870](assets/image-20260215180442870.png)
 
-3. 代码实现
+3. epsilon衰减：可以看到即是没有使用该方法，策略也收敛到了最优
+
+4. 代码实现
 
    ```python
    class QLearning():
@@ -794,7 +826,7 @@
    agent = QLearning(cfg, n_action, n_states)
    ```
 
-4. 补全训练和测试代码
+5. 补全训练和测试代码
 
    ```python
    reward_history = []
@@ -836,7 +868,7 @@
    
    ```
 
-5. 结果：策略最终收敛到最佳奖励-13
+6. 结果：策略最终收敛到最佳奖励-13
 
    ![image-20260215181236863](assets/image-20260215181236863.png)
 
@@ -923,7 +955,162 @@
 
 
 
-# Policy Gradient
+## 蒙特卡洛方法
 
-## Reinforce
+1. 相比于前两种方法，蒙特卡洛并不适用于这个问题
+
+1. 蒙特卡洛方法：每次采样完整轨迹，使用完整轨迹对q表格进行更新
+
+   - 由于要采样完整轨迹，蒙特卡洛方法天然不适用无限步数的游戏
+   - cliffwalking中撞墙不会终止游戏，这使得游戏可能出现无限补偿
+   - 必须加入截断，在到达一定步数停止游戏，否则agent可能会卡在一个位置，导致游戏无法完整收集一个回合
+
+2. 蒙特卡洛方法在cliffwalking问题下的训练难点：
+
+   - 高方差，低偏差：体现在悬崖行走问题的训练中：
+
+     - 是否掉落悬崖是一个巨大的离散跳变：
+       - 同样从起点出发：
+         - 一条安全路线可能走得更远：回报大概是 $-1\times\text{步数}$。
+         - 一次不小心（尤其是 ε-greedy 探索时）靠近悬崖边缘就可能掉下去，立刻吃到 -100 的巨额惩罚。 
+       - 于是 G 会在“正常负数”和“突然极大负数”之间跳，样本间差异巨大 ⇒ **方差极高**。
+
+     - **ε 的两难**
+       - epsilon过小：由于要收集完整轨迹才能更新，在有truncate的情况下，过小的探索可能根本没有办法让模型学习探索最佳路径，而是进入坏循环、绕路，导致最终的奖励搜索到-1*truncate步数
+       - epsilon过大：引入非常大的方差，导致模型无法收敛
+       - 方案：给出一个非常大的epsilon初期探索路径，但是必须更快速的减小，让后期的规划更稳定
+
+   - 相比时序差分更难收敛：
+     - **本质差异：更新粒度不同。**
+       - **MC：**拿“整段累计回报”当监督信号（episode 结束才更新）
+       - **TD：**用一步或 n 步 bootstrap，**每一步就能更新**（更早获得学习信号）
+     - 在 CliffWalking 的早期，策略往往很差，常出现绕路、来回走、反复撞墙/循环导致 episode 长度变化巨大：
+       - 轨迹很长 → 累计 -1 很多，回报更差
+       - 偶尔又可能很快到终点 → 回报又“没那么差”
+     - 对 MC 来说：**方差进一步上升**
+       - “轨迹长度波动 + 是否掉悬崖跳变”叠加在一起
+       - 使得 G 的波动空间更大
+     - 同时由于 MC 必须“等整条轨迹结束”才能得到一次更新：⇒ **表现为比 TD 更难稳定收敛**
+       - 早期采样效率低
+       - 更新信号噪声大
+       - 策略改进慢
+
+3. 对比Sarsa和Q-Learning方案：
+
+   - 加入截断：变成有限的游戏
+     - 截断长度要大于100，否则模型会宁愿在原地等死也不冒险脚滑掉入悬崖
+   - 给出一个非常大的epsilon初期探索路径，但是必须更快速的减小，让后期的规划更稳定：使agent能探索到最优路径，后期也能收敛
+   - First visit：在初期绕路的时候，避免奖励强自相关
+
+4. MC代码
+
+   ```python
+   class MC():
+       def __init__(self):
+           self.gamma = cfg.gamma
+           self.alpha = cfg.alpha
+           self.epsilon = cfg.epsilon
+           self.action_space = n_action
+           self.observation_space = n_states
+           
+           # 初始化Q表
+           self.Q_table = defaultdict(lambda: np.zeros(self.action_space))
+   
+           self.epsilon_start = 0.9#high cfg.epsilon
+           self.n_epsisodes = cfg.n_episodes
+           self.epsilon_end = 0
+   
+       def choose_action(self, state, episode, train = True):
+           if not train:
+               return np.argmax(self.Q_table[state])
+           self.epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
+           math.exp(-1. * episode / (self.n_epsisodes/3))# converges faster
+   
+           
+           if random.uniform(0, 1) < self.epsilon:
+               action = random.randint(0, self.action_space - 1)
+           else:
+               action = np.argmax(self.Q_table[state])
+           return action
+           
+   
+       def update(self, trajectory):
+           G = 0
+           visited= set()
+           for state, action, reward in reversed(trajectory):
+               G = reward + self.gamma * G
+   					# first visit
+               if (state, action) not in visited:
+                   self.Q_table[state][action] += self.alpha * (G - self.Q_table[state][action])
+                   visited.add((state, action))
+               
+   agent = MC()
+   ```
+
+   
+
+5. 训练代码
+
+   - ```python
+     env = gym.make("CliffWalking-v0")
+     env = gym.wrappers.TimeLimit(env, max_episode_steps=200)
+     reward_history = []
+     ma_reward_history = []
+     q_history = []  # 用于记录每一步的Q表快照
+     q_history.append(np.stack([agent.Q_table[s] for s in range(48)], axis=0))  # (48, 4)
+     
+     for episode in tqdm(range(10000), desc="Training Episodes"):
+         ep_reward = 0
+         state, _ = env.reset()
+         done = False
+     
+         trajectory = []   # [(state, action, reward), ...]
+     
+         # ---- 生成一条完整轨迹 ----
+         while not done:
+             action = agent.choose_action(state, episode)
+     
+             next_state, reward, terminated, truncated, _ = env.step(action)
+             done = terminated or truncated
+     
+             trajectory.append((state, action, reward))
+             ep_reward += reward
+             state = next_state
+     
+         agent.update(trajectory)
+         q_history.append(np.stack([agent.Q_table[s] for s in range(48)], axis=0))  # (48, 4)
+         
+         reward_history.append(ep_reward)
+         if ma_reward_history:
+             ma_reward_history.append(0.9 * ma_reward_history[-1] + 0.1 * ep_reward)
+         else:
+             ma_reward_history.append(ep_reward)
+     
+     # 推理模式
+     state, _ = env.reset()
+     ep_reward = 0
+     trajectory = []
+     
+     
+     while True:
+         action = agent.choose_action(state, episode, train = False)
+         next_state, reward, terminated, truncated, _ = env.step(action)
+         done = terminated or truncated
+     
+         trajectory.append((state, action, reward))
+         state = next_state
+         ep_reward += reward
+     
+         if done:
+             break
+     
+     ```
+
+6. 结果
+
+   - 由于是同策略，模型不愿意冒风险选择了远离悬崖
+     - 最终收敛到17，选择了最靠边的路线
+   - 模型非常难训练
+
+   ![image-20260222154625311](assets/image-20260222154625311.png)
 
