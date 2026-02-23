@@ -1,18 +1,25 @@
 
 import sys
+import os
+
+# Add project root (parent directory of /train) to PYTHONPATH
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 import gymnasium as gym
 import random
 import numpy as np
 
-import torch
+import torch    
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import RFNet, ACNet
+from algo.model import RFNet
 from tensorboardX import SummaryWriter
 
 
 from algo.model_utils import Memory
-from configs.configs import ACConfig, build_default_configs
+from configs.configs import RFConfig, build_default_configs
 from utils.train_utils import save_train_plot
 
 def set_seeds(env, seed = 42):
@@ -36,7 +43,7 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = ACNet(num_inputs, num_actions)
+    net = RFNet(num_inputs, num_actions)
     model_name = net.model_name
 
     optimizer = optim.Adam(net.parameters(), lr=args.lr)
@@ -84,7 +91,7 @@ def main(args):
             score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
-        loss = ACNet.train_model(net, memory.pop(), optimizer, args.gamma)
+        loss = RFNet.train_model(net, memory.sample(), optimizer, args.gamma)
         loss_history.append(float(loss.item()))
             
 
@@ -102,9 +109,9 @@ def main(args):
         if running_score > args.goal_score:
             break
 
-    save_train_plot(loss_history, reward_history, model_name, seed)
+    save_train_plot(loss_history, reward_history, model_name, seed, env_name)
 
 
 if __name__=="__main__":
-    args = build_default_configs(ACConfig)
+    args = build_default_configs(RFConfig)
     main(args)

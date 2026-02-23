@@ -1,9 +1,9 @@
 import os
 import matplotlib.pyplot as plt
 
-def save_train_plot(loss_history, reward_history, model_name, seed):
+def save_train_plot(loss_history, reward_history, model_name, seed, game):
     os.makedirs("results/train", exist_ok=True)
-    fig_path = os.path.join("results/train", f"{model_name}_seed{seed}_train.png")
+    fig_path = os.path.join("results/train", f"{game}_{model_name}_seed{seed}_train.png")
     fig, axes = plt.subplots(2, 1, figsize=(8, 8))
     axes[0].plot(loss_history)
     axes[0].set_title("Loss")

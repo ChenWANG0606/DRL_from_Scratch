@@ -35,7 +35,7 @@ def build_default_configs(config_cls: Type):
     return config
 
 @dataclass
-class Config:
+class BaseConfig:
     gamma: float = 0.99
     lr: float = 0.001
     log_interval: int = 10
@@ -47,27 +47,11 @@ class Config:
 
 
 @dataclass
-class RFConfig:
-    gamma: float = 0.99
-    lr: float = 0.001
+class RFConfig(BaseConfig):
     goal_score: int = 200
-    log_interval: int = 10
-    device: torch.device = (
-        torch.device("mps")
-        if torch.backends.mps.is_available()
-        else torch.device("cpu")
-    )
+
 
 @dataclass
-class ACConfig:
-    gamma = 0.99
-    lr = 0.0001
-    goal_score = 200
-    log_interval = 10
-    device: torch.device = (
-        torch.device("mps")
-        if torch.backends.mps.is_available()
-        else torch.device("cpu")
-    )
-
-
+class ACConfig(BaseConfig):
+    lr: float = 0.0001
+    goal_score: int = 200

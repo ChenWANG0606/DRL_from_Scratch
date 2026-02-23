@@ -8,7 +8,7 @@ class RFNet(nn.Module):
         super().__init__()
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
-        self.model_name = 'RF' # Policy Gradient
+        self.model_name = 'RF' # Policy Gradient Reinforce
 
         self.fc_1 = nn.Linear(num_inputs, 128)
         self.fc_2 = nn.Linear(128, num_outputs)
