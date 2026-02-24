@@ -1,1 +1,5 @@
 StockData/
+logs/
+.venv/
+
+__pycache__/
