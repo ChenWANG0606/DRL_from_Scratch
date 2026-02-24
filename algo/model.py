@@ -15,8 +15,7 @@ class RFNet(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
     def forward(self, input):
         x = F.relu(self.fc_1(input))
         policy = F.softmax(self.fc_2(x), dim=-1)
@@ -73,7 +72,7 @@ class ACNet(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
 
     def forward(self, input):
         x = F.relu(self.fc(input))

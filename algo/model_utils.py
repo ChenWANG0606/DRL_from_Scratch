@@ -13,9 +13,12 @@ class Memory(object):
     def pop(self):
         return self.memory.popleft()
 
-    def sample(self):
-        memory = self.memory
-        return Transition(*zip(*memory)) 
+    def sample(self, batch_size=None):
+        if batch_size is None:
+            transitions = self.memory
+        else:
+            transitions = random.sample(self.memory, batch_size)
+        return Transition(*zip(*transitions))
 
     def __len__(self):
         return len(self.memory)
