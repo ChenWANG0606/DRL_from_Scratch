@@ -32,7 +32,7 @@ def set_seeds(env, seed = 42):
 
 
 def main(args):
-    env_name = "CartPole-v1"
+    env_name = args.env_name
     seed = 42
     env = gym.make(env_name)
     set_seeds(env, seed=seed)

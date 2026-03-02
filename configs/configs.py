@@ -48,10 +48,25 @@ class BaseConfig:
 
 @dataclass
 class RFConfig(BaseConfig):
+    env_name = "CartPole-v1"
     goal_score: int = 200
 
 
 @dataclass
 class ACConfig(BaseConfig):
+    env_name = "CartPole-v1"
     lr: float = 0.0001
     goal_score: int = 200
+
+class DQNConfig(BaseConfig):
+    env_name = "CartPole-v1"
+    goal_score: int = 200
+    sequence_length = 4 # 将多个历史时刻拼接起来，组成多个时间步拼接特征
+    replay_memory_capacity = 1000 
+    update_target = 100
+    lr: float = 0.0001
+    initial_exploration = 1000
+    batch_size = 64
+    epsilon = 0.9
+    seed = 42
+

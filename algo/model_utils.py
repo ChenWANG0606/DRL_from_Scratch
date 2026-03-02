@@ -4,8 +4,12 @@ from collections import namedtuple, deque
 Transition = namedtuple('Transition', ('state', 'next_state', 'action', 'reward', 'mask'))
 
 class Memory(object):
-    def __init__(self):
-        self.memory = deque()
+    def __init__(self, capacity=None):
+        self.capacity = capacity
+        if capacity is None:
+            self.memory = deque()
+        else:
+            self.memory = deque(maxlen=capacity)
 
     def push(self, state, next_state, action, reward, mask):
         self.memory.append(Transition(state, next_state, action, reward, mask))
