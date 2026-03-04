@@ -60,7 +60,7 @@ def main(args):
 
     for e in range(episodes):
         done = False
-        memory = Memory()
+        memory = Memory()# 每一轮重置Memory，因为策略梯度参数更新后，之前的轨迹就过时了
 
         score = 0
         state, _ = env.reset()

@@ -1,5 +1,12 @@
 import gym
 import numpy as np
+import sys
+import os
+# Add project root (parent directory of /train) to PYTHONPATH
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 import torch
 import torch.optim as optim
@@ -53,7 +60,7 @@ def main(args):
     online_net.train()
     target_net.train()
 
-    memory = Memory(args.replay_memory_capacity)
+    memory = Memory(args.replay_memory_capacity)# 和策略梯度不同，Memory在DQN中可以使用多轮，因此在循环外初始化，并通过capacity限制大小
     running_score = 0
     epsilon = args.epsilon
     steps = 0
