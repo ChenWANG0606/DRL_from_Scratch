@@ -14,7 +14,7 @@ import numpy as np
 import torch    
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import RFNet
+from algo.model import Reinforce,  Reinforce2
 from tensorboardX import SummaryWriter
 
 
@@ -43,7 +43,7 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = RFNet(num_inputs, num_actions)
+    net = Reinforce2(num_inputs, num_actions)
     model_name = net.model_name
 
     optimizer = optim.Adam(net.parameters(), lr=args.lr)
@@ -91,7 +91,7 @@ def main(args):
             score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
-        loss = RFNet.train_model(net, memory.sample(), optimizer, args.gamma)
+        loss = Reinforce2.train_model(net, memory.sample(), optimizer, args.gamma)
         loss_history.append(float(loss.item()))
             
 

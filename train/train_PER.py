@@ -10,7 +10,7 @@ if PROJECT_ROOT not in sys.path:
 
 import torch
 import torch.optim as optim
-from algo.model import DQN, DDQN, D3QN, multistep_DQN, Noisy_DQN
+from algo.model import PER_DQN
 from algo.model_utils import Memory
 from tensorboardX import SummaryWriter
 
@@ -29,8 +29,9 @@ def sync_target_network(online_net, target_net):
     target_net.load_state_dict(online_net.state_dict())
 
 def train_step(online_net, target_net, optimizer, memory, args):
-    batch = memory.sample(args.batch_size)
-    loss = Noisy_DQN.train_model(online_net, target_net, optimizer, batch, args.gamma)
+    batch, indices, weights = memory.priority_sample(args.batch_size, args.beta)
+    loss, td_error = PER_DQN.train_model(online_net, target_net, optimizer, batch, args.gamma, torch.Tensor(weights).to(args.device))
+    memory.update_priority(indices, td_error, args.alpha)
     return loss
 
 def state_to_partial_observability(state):
@@ -47,8 +48,8 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    online_net = Noisy_DQN(num_inputs, num_actions, args.sequence_length)
-    target_net = Noisy_DQN(num_inputs, num_actions, args.sequence_length)
+    online_net = PER_DQN(num_inputs, num_actions, args.sequence_length)
+    target_net = PER_DQN(num_inputs, num_actions, args.sequence_length)
 
     sync_target_network(online_net, target_net)
 
@@ -60,9 +61,11 @@ def main(args):
     online_net.train()
     target_net.train()
 
-    memory = Memory(args.replay_memory_capacity, n_step=args.n_step, gamma=args.gamma)# 和策略梯度不同，Memory在DQN中可以使用多轮，因此在循环外初始化，并通过capacity限制大小
+    memory = Memory(args.replay_memory_capacity, n_step=args.n_step
+                    , gamma=args.gamma, with_priority = True
+                    , epsilon = args.small_epsilon)# 和策略梯度不同，Memory在DQN中可以使用多轮，因此在循环外初始化，并通过capacity限制大小
     running_score = 0
-    epsilon = -1
+    epsilon = args.epsilon
     steps = 0
     loss = 0
 
@@ -71,11 +74,12 @@ def main(args):
 
     for e in range(3000):
         done = False
+
         state_series = deque(maxlen = args.sequence_length)# 出队sequence_length长度
         next_state_series = deque(maxlen=args.sequence_length)
         score = 0
         state, _ = env.reset()
-        
+
         # state = state_to_partial_observability(state)
         state = torch.Tensor(state).to(args.device)
         next_state_series.append(state)# 将环境初始化的state放入next, 这样后面可以正常迭代
@@ -87,7 +91,7 @@ def main(args):
             next_state, reward, terminated, truncated, _ = env.step(action)
 
             # next_state = state_to_partial_observability(next_state)
-            next_state = torch.tensor(next_state, dtype=torch.float32).to(args.device)
+            next_state = torch.Tensor(next_state).to(args.device)
             # next_state 序列应当是 state 序列整体右移一位后追加当前 next_state
             next_state_series.append(next_state)
             done = terminated or truncated
@@ -104,7 +108,7 @@ def main(args):
             state = next_state
 
             if steps>args.initial_exploration and len(memory) >= args.batch_size:
-                # epsilon = max(0.1, epsilon - 5e-6)
+                epsilon = max(0.1, epsilon - 5e-6)
 
                 loss = train_step(online_net, target_net, optimizer, memory, args)
                 loss_history.append(float(loss.item()))

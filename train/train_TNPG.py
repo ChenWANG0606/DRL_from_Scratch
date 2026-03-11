@@ -14,12 +14,12 @@ import numpy as np
 import torch    
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import A2CNet as ACNet
+from algo.model import TNPG
 from tensorboardX import SummaryWriter
 
 
 from algo.model_utils import Memory
-from configs.configs import ACConfig, build_default_configs
+from configs.configs import TNPGConfig, build_default_configs
 from utils.train_utils import save_train_plot
 
 def set_seeds(env, seed = 42):
@@ -32,7 +32,7 @@ def set_seeds(env, seed = 42):
 
 
 def main(args):
-    env_name = "CartPole-v1"
+    env_name = args.env_name
     seed = 42
     env = gym.make(env_name)
     set_seeds(env, seed=seed)
@@ -43,10 +43,9 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = ACNet(num_inputs, num_actions)
+    net = TNPG(num_inputs, num_actions)
     model_name = net.model_name
 
-    optimizer = optim.Adam(net.parameters(), lr=args.lr)
     writer = SummaryWriter('logs')
 
     net.to(args.device)
@@ -60,7 +59,7 @@ def main(args):
 
     for e in range(episodes):
         done = False
-        memory = Memory()
+        memory = Memory()# 每一轮重置Memory，因为策略梯度参数更新后，之前的轨迹就过时了
 
         score = 0
         state, _ = env.reset()
@@ -84,14 +83,22 @@ def main(args):
             mask = 0 if done else 1
             reward = reward if not done or score == 499 else -1
 
-            action_one_hot = torch.zeros(2)
+            action_one_hot = torch.zeros(num_actions)
             action_one_hot[action] = 1
             memory.push(state, next_state, action_one_hot, reward, mask)
     
             score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
-            loss = ACNet.train_model(net, memory.pop(), optimizer, args.gamma)
+        loss = TNPG.train_model(
+            net,
+            memory.sample(),
+            gamma=args.gamma,
+            lr=args.lr,
+            max_kl=args.max_kl,
+            cg_damp=args.cg_damp,
+            cg_iters=args.cg_iters,
+        )
         loss_history.append(float(loss.item()))
             
 
@@ -113,5 +120,5 @@ def main(args):
 
 
 if __name__=="__main__":
-    args = build_default_configs(ACConfig)
+    args = build_default_configs(TNPGConfig)
     main(args)

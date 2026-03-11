@@ -14,12 +14,12 @@ import numpy as np
 import torch    
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import A2CNet as ACNet
+from algo.model import GAE
 from tensorboardX import SummaryWriter
 
 
 from algo.model_utils import Memory
-from configs.configs import ACConfig, build_default_configs
+from configs.configs import GAEConfig, build_default_configs
 from utils.train_utils import save_train_plot
 
 def set_seeds(env, seed = 42):
@@ -43,7 +43,7 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = ACNet(num_inputs, num_actions)
+    net = GAE(num_inputs, num_actions)
     model_name = net.model_name
 
     optimizer = optim.Adam(net.parameters(), lr=args.lr)
@@ -91,7 +91,7 @@ def main(args):
             score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
-            loss = ACNet.train_model(net, memory.pop(), optimizer, args.gamma)
+        loss = GAE.train_model(net, optimizer, memory.sample(), args.gamma,args.lambda_gae,  args.critic_coefficient, args.entropy_coefficient)
         loss_history.append(float(loss.item()))
             
 
@@ -113,5 +113,5 @@ def main(args):
 
 
 if __name__=="__main__":
-    args = build_default_configs(ACConfig)
+    args = build_default_configs(GAEConfig)
     main(args)
