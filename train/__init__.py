@@ -1,1 +1,1 @@
-# Training entry modules package.
+# Compatibility entry modules package.
