@@ -14,12 +14,12 @@ import numpy as np
 import torch    
 import torch.optim as optim
 import torch.nn.functional as F
-from algo.model import TRPO as TNPG
+from algo.model import PPO2
 from tensorboardX import SummaryWriter
 
 
 from algo.model_utils import Memory
-from configs.configs import TNPGConfig, build_default_configs
+from configs.configs import PPOConfig, build_default_configs
 from utils.train_utils import save_train_plot
 
 def set_seeds(env, seed = 42):
@@ -32,7 +32,7 @@ def set_seeds(env, seed = 42):
 
 
 def main(args):
-    env_name = args.env_name
+    env_name = "CartPole-v1"
     seed = 42
     env = gym.make(env_name)
     set_seeds(env, seed=seed)
@@ -43,9 +43,10 @@ def main(args):
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
-    net = TNPG(num_inputs, num_actions)
+    net = PPO2(num_inputs, num_actions)
     model_name = net.model_name
 
+    optimizer = optim.Adam(net.parameters(), lr=args.lr)
     writer = SummaryWriter('logs')
 
     net.to(args.device)
@@ -59,7 +60,7 @@ def main(args):
 
     for e in range(episodes):
         done = False
-        memory = Memory()# 每一轮重置Memory，因为策略梯度参数更新后，之前的轨迹就过时了
+        memory = Memory()
 
         score = 0
         state, _ = env.reset()
@@ -68,7 +69,7 @@ def main(args):
 
         while not done:
             steps += 1
-
+            
             action = net.get_action(state)
             step_out = env.step(action)
             if len(step_out) == 5:
@@ -83,22 +84,14 @@ def main(args):
             mask = 0 if done else 1
             reward = reward if not done or score == 499 else -1
 
-            action_one_hot = torch.zeros(num_actions)
+            action_one_hot = torch.zeros(2)
             action_one_hot[action] = 1
-            memory.push(state, next_state, action_one_hot, reward, mask)
+            memory.push(state.detach(), next_state.detach(), action_one_hot, reward, mask)
     
             score += reward# reward是环境给的只有0-1代表是否还活着s
             state = next_state
 
-        loss = TNPG.train_model(
-            net,
-            memory.sample(),
-            gamma=args.gamma,
-            # lr=args.lr,
-            max_kl=args.max_kl,
-            cg_damp=args.cg_damp,
-            cg_iters=args.cg_iters,
-        )
+        loss = PPO2.train_model(net, optimizer, memory.sample(), args.gamma ,args.lambda_gae,  args.critic_coefficient, args.entropy_coefficient)
         loss_history.append(float(loss.item()))
             
 
@@ -120,5 +113,5 @@ def main(args):
 
 
 if __name__=="__main__":
-    args = build_default_configs(TNPGConfig)
+    args = build_default_configs(PPOConfig)
     main(args)

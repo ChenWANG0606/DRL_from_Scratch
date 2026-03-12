@@ -945,7 +945,6 @@ class GAE(nn.Module):
         return action
 
 
-import copy
 class TNPG(nn.Module):
     def __init__(self, num_inputs, num_outputs):
         super().__init__()
@@ -976,13 +975,11 @@ class TNPG(nn.Module):
 
     # KL divergence
     @staticmethod
-    def kl_divergence(net, old_net, states):
-        policy = net(states)
-        old_policy = old_net(states).detach()
+    def kl_divergence(policy, old_policy):
 
         kl = old_policy * torch.log((old_policy + 1e-8) / (policy + 1e-8))
-        kl = kl.sum(1)
-        return kl.mean()
+        kl = kl.sum(1,keepdim = True)
+        return kl
 
     # flatten hessian
     @staticmethod
@@ -996,10 +993,11 @@ class TNPG(nn.Module):
     # Fisher Vector Product
     @staticmethod
     def fisher_vector_product(net, states, p, cg_damp=0.1):
+        policy = net(states)
+        old_policy = net(states).detach()
 
-        old_net = copy.deepcopy(net)
-
-        kl = TNPG.kl_divergence(net, old_net, states)
+        kl = TNPG.kl_divergence(policy, old_policy)
+        kl = kl.mean()
 
         kl_grad = torch.autograd.grad(
             kl, net.parameters(), create_graph=True
@@ -1117,7 +1115,7 @@ class TNPG(nn.Module):
         # update params
         params = cls.flat_params(net)
 
-        new_params = params + lr * full_step
+        new_params = params + full_step# lr * step_dir
 
         cls.update_model(net, new_params)
 
@@ -1131,4 +1129,431 @@ class TNPG(nn.Module):
 
         action = np.random.choice(self.num_outputs, 1, p=policy)[0]
 
+        return action
+
+class TRPO(nn.Module):
+    def __init__(self, num_inputs, num_outputs):
+        super().__init__()
+        self.num_inputs = num_inputs
+        self.num_outputs = num_outputs
+        self.model_name = "TRPO"
+
+        self.fc_1 = nn.Linear(num_inputs, 128)
+        self.fc_2 = nn.Linear(128, num_outputs)
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+
+    def forward(self, input):
+        x = F.relu(self.fc_1(input))
+        policy = F.softmax(self.fc_2(x), dim=-1)
+        return policy
+
+    # flatten gradient
+    @staticmethod
+    def flat_grad(grads):
+        grad_flatten = []
+        for grad in grads:
+            grad_flatten.append(grad.contiguous().view(-1))
+        grad_flatten = torch.cat(grad_flatten)
+        return grad_flatten
+
+    # KL divergence
+    @staticmethod
+    def kl_divergence(policy, old_policy):
+
+        kl = old_policy * torch.log((old_policy + 1e-8) / (policy + 1e-8))
+        kl = kl.sum(1,keepdim = True)
+        return kl
+
+    # flatten hessian
+    @staticmethod
+    def flat_hessian(hessians):
+        hessians_flatten = []
+        for hessian in hessians:
+            hessians_flatten.append(hessian.contiguous().view(-1))
+        hessians_flatten = torch.cat(hessians_flatten)
+        return hessians_flatten
+
+    # Fisher Vector Product
+    @staticmethod
+    def fisher_vector_product(net, states, p, cg_damp=0.1):
+        policy = net(states)
+        old_policy = net(states).detach()
+        # 后续计算的时候梯度只会通过policy
+        # 如果不detach沿着policy和old_policy的话就相当于两个loss同时更新一个网络了
+
+        kl = TNPG.kl_divergence(policy, old_policy)
+        kl = kl.mean()
+
+        kl_grad = torch.autograd.grad(
+            kl, net.parameters(), create_graph=True
+        )
+
+        kl_grad = TNPG.flat_grad(kl_grad)
+
+        kl_grad_p = (kl_grad * p).sum()
+
+        kl_hessian_p = torch.autograd.grad(
+            kl_grad_p, net.parameters(), retain_graph=True
+        )
+
+        kl_hessian_p = TNPG.flat_hessian(kl_hessian_p)
+
+        return kl_hessian_p + cg_damp * p
+
+    # flatten params
+    @staticmethod
+    def flat_params(model):
+        params = []
+        for param in model.parameters():
+            params.append(param.data.view(-1))
+        return torch.cat(params)
+
+    # update model params
+    @staticmethod
+    def update_model(model, new_params):
+
+        index = 0
+        for param in model.parameters():
+
+            param_length = param.numel()
+
+            new_param = new_params[index:index + param_length]
+
+            param.data.copy_(new_param.view(param.size()))
+
+            index += param_length
+
+    # Conjugate Gradient
+    @staticmethod
+    def conjugate_gradient(net, states, b, n_step=10, residual_tol=1e-10, cg_damp = 0.1):
+
+        x = torch.zeros_like(b)
+        r = b.clone()
+        p = b.clone()
+
+        r_dot_r = torch.dot(r, r)
+
+        for _ in range(n_step):
+
+            Avp = TNPG.fisher_vector_product(net, states, p, cg_damp)
+
+            alpha = r_dot_r / (torch.dot(p, Avp) + 1e-8)
+
+            x += alpha * p
+
+            r -= alpha * Avp
+
+            new_r_dot_r = torch.dot(r, r)
+
+            if new_r_dot_r < residual_tol:
+                break
+
+            beta = new_r_dot_r / r_dot_r
+
+            p = r + beta * p
+
+            r_dot_r = new_r_dot_r
+
+        return x
+
+    @classmethod
+    def train_model(cls, net, transitions, gamma, max_kl = 0.01, cg_damp = 0.1, cg_iters = 10):
+
+        device = next(net.parameters()).device
+
+        states = torch.stack(transitions.state).to(device)
+        actions = torch.stack(transitions.action).to(device)
+        rewards = torch.tensor(transitions.reward, dtype=torch.float32).to(device)
+        masks = torch.tensor(transitions.mask, dtype=torch.float32).to(device)
+
+        returns = torch.zeros_like(rewards)
+
+        running_return = 0
+
+        for t in reversed(range(len(rewards))):
+            running_return = rewards[t] + gamma * running_return * masks[t]
+            returns[t] = running_return
+
+        
+        advantages = returns - returns.mean()
+        advantages = advantages / (advantages.std(unbiased=False) + 1e-8)
+
+        policies = net(states).view(-1, net.num_outputs)
+
+        log_policies = (torch.log(policies+1e-8) * actions.detach()).sum(dim=1)
+
+        old_policies = net(states).detach().view(-1, net.num_outputs)# 从计算图分离不会再参加梯度
+        old_log_policies = (torch.log(old_policies +1e-8) * actions.detach()).sum(dim=1)
+        ratio = torch.exp(log_policies-old_log_policies)
+        surrogate_objective = (ratio * advantages.detach()).sum()
+
+        # policy gradient
+        surrogate_loss_grads = torch.autograd.grad(surrogate_objective, net.parameters())
+        surrogate_loss_grads = cls.flat_grad(surrogate_loss_grads).detach()
+        params = cls.flat_params(net)
+
+        # conjugate gradient solve
+        step_dir = cls.conjugate_gradient(net, states, surrogate_loss_grads , n_step=cg_iters, cg_damp=cg_damp)
+        fisher_step = cls.fisher_vector_product(net, states, step_dir, cg_damp=cg_damp)
+        with torch.no_grad():
+            step_norm = torch.dot(step_dir, fisher_step)
+            step_scale = torch.sqrt(
+                torch.tensor(2.0 * max_kl, device=device) / (step_norm + 1e-8)
+            )
+            full_step = step_scale * step_dir
+
+            fraction = 1.0
+            # backtracking line search update params
+            # 实际上可以保留旧参数，方便在line search失败后恢复
+            for _ in range(10):
+                new_params = params + fraction*full_step
+                cls.update_model(net, new_params)
+
+                policies = net(states).view(-1, net.num_outputs)
+                log_policies = (torch.log(policies+1e-8) * actions).sum(dim=1)
+
+                ratio = torch.exp(log_policies - old_log_policies)
+                surrogate_objective = (ratio*advantages).mean()
+                
+                kl = cls.kl_divergence(policies, old_policies).mean()
+                if kl<max_kl:# 最好在加一个判断目标有提升
+                    break
+
+                fraction = fraction*0.5
+        
+            return -surrogate_objective
+
+    def get_action(self, input):
+
+        policy = self.forward(input)
+
+        policy = policy.squeeze(0).detach().cpu().numpy()
+
+        action = np.random.choice(self.num_outputs, 1, p=policy)[0]
+
+        return action
+
+
+class PPO1(nn.Module):
+    def __init__(self, num_inputs, num_outputs):
+        super().__init__()
+        self.num_inputs = num_inputs
+        self.num_outputs = num_outputs
+
+        self.fc = nn.Linear(num_inputs, 128)
+        self.fc_actor = nn.Linear(128, num_outputs)
+        self.fc_critic = nn.Linear(128, 1)
+        self.model_name = "PPO_clip"
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+
+    def forward(self, input):
+        x = F.relu(self.fc(input))
+        policy = F.softmax(self.fc_actor(x), dim=-1)
+        v = self.fc_critic(x)
+        return policy, v
+    
+    def get_gae(self, values, next_values, rewards, masks, gamma, lambda_gae):
+        advantages = torch.zeros_like(rewards)
+        running_advantage = 0.0
+
+        for t in range(len(rewards) - 1, -1, -1):
+            delta = rewards[t] + gamma * next_values[t] * masks[t] - values[t]
+            running_advantage = delta + gamma * lambda_gae * running_advantage * masks[t]
+            advantages[t] = running_advantage
+
+        returns = advantages + values
+        return returns, advantages
+    
+    @classmethod
+    def train_model(cls, net, optimizer, batch, gamma, lambda_gae, critic_coefficient, entropy_coefficient, epoch = 10, batch_size = 64, clips_eps = 0.1):
+        device = next(net.parameters()).device
+
+        states = torch.stack(batch.state).to(device)
+        next_states = torch.stack(batch.next_state).to(device)
+        actions = torch.stack(batch.action).to(device)
+        rewards = torch.tensor(batch.reward, dtype=torch.float32, device=device).view(-1)
+        masks   = torch.tensor(batch.mask, dtype=torch.float32, device=device).view(-1)
+
+        old_policies, old_values = net(states)
+        _, old_next_values = net(next_states)
+
+        old_policies = old_policies.view(-1, net.num_outputs)
+        old_values = old_values.view(-1)
+        old_next_values = old_next_values.view(-1)
+        old_log_prob = (torch.log(old_policies + 1e-8) * actions).sum(dim=1).detach()
+
+        returns, advantages = net.get_gae(
+            old_values.detach(),
+            old_next_values.detach(),
+            rewards,
+            masks,
+            gamma,
+            lambda_gae,
+        )
+
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+
+        dataset_size = states.size(0)
+        # 输入的事回合的所有sample，在这个之上采样
+        for _ in range(epoch):
+            indices = torch.randperm(dataset_size)
+            for start in range(0, dataset_size, batch_size):
+                end = start+batch_size
+                batch_idx = indices[start:end]
+
+                s = states[batch_idx]
+                a = actions[batch_idx]
+                adv = advantages[batch_idx]
+                ret = returns[batch_idx]
+                old_log = old_log_prob[batch_idx]
+
+                policies,values = net(s)
+
+                policies = policies.view(-1, net.num_outputs)
+                # PPO1
+                log_policies = (torch.log(policies + 1e-8) * a).sum(dim=1)
+                ratio = torch.exp(log_policies - old_log)
+
+                surr1 = ratio*adv# 注意参照重要性采样，优化目标函数和策略梯度不一样了
+                surr2 = torch.clamp(ratio, 1-clips_eps, 1+clips_eps)*adv
+                
+                actor_loss = -torch.min(surr1, surr2).mean()
+                critic_loss = F.mse_loss(values.view(-1), ret)
+
+                entropy = -(policies * torch.log(policies + 1e-8)).sum(dim=1).mean()# 对整个整个batch求平均
+
+                loss = actor_loss + critic_coefficient * critic_loss - entropy_coefficient * entropy
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+        return loss
+    
+    def get_action(self, input):
+        with torch.no_grad():
+            policy, _ = self.forward(input)
+            policy = policy.squeeze(0).detach().cpu().numpy()
+
+            action = np.random.choice(self.num_outputs, 1, p=policy)[0]
+        return action
+    
+
+class PPO2(nn.Module):
+    def __init__(self, num_inputs, num_outputs):
+        super().__init__()
+        self.num_inputs = num_inputs
+        self.num_outputs = num_outputs
+
+        self.fc = nn.Linear(num_inputs, 128)
+        self.fc_actor = nn.Linear(128, num_outputs)
+        self.fc_critic = nn.Linear(128, 1)
+        self.model_name = "PPO2_penalty"
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+
+    def forward(self, input):
+        x = F.relu(self.fc(input))
+        policy = F.softmax(self.fc_actor(x), dim=-1)
+        v = self.fc_critic(x)
+        return policy, v
+    
+    def get_gae(self, values, next_values, rewards, masks, gamma, lambda_gae):
+        advantages = torch.zeros_like(rewards)
+        running_advantage = 0.0
+
+        for t in range(len(rewards) - 1, -1, -1):
+            delta = rewards[t] + gamma * next_values[t] * masks[t] - values[t]
+            running_advantage = delta + gamma * lambda_gae * running_advantage * masks[t]
+            advantages[t] = running_advantage
+
+        returns = advantages + values
+        return returns, advantages
+    @staticmethod
+    def kl_divergence(policy, old_policy):
+        kl = old_policy * torch.log((old_policy + 1e-8) / (policy + 1e-8))
+        kl = kl.sum(1)
+        return kl
+    
+    @classmethod
+    def train_model(cls, net, optimizer, batch, gamma, lambda_gae, critic_coefficient, entropy_coefficient, epoch = 10, batch_size = 64, beta = 0.01):
+        device = next(net.parameters()).device
+
+        states = torch.stack(batch.state).to(device)
+        next_states = torch.stack(batch.next_state).to(device)
+        actions = torch.stack(batch.action).to(device)
+        rewards = torch.tensor(batch.reward, dtype=torch.float32, device=device).view(-1)
+        masks   = torch.tensor(batch.mask, dtype=torch.float32, device=device).view(-1)
+
+        old_policies, old_values = net(states)
+        _, old_next_values = net(next_states)
+
+        old_policies = old_policies.view(-1, net.num_outputs).detach()
+        old_values = old_values.view(-1)
+        old_next_values = old_next_values.view(-1)
+        old_log_prob = (torch.log(old_policies + 1e-8) * actions).sum(dim=1).detach()
+
+        returns, advantages = net.get_gae(
+            old_values.detach(),
+            old_next_values.detach(),
+            rewards,
+            masks,
+            gamma,
+            lambda_gae,
+        )
+
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+
+        dataset_size = states.size(0)
+        # 输入的事回合的所有sample，在这个之上采样
+        for _ in range(epoch):
+            indices = torch.randperm(dataset_size)
+            for start in range(0, dataset_size, batch_size):
+                end = start+batch_size
+                batch_idx = indices[start:end]
+
+                s = states[batch_idx]
+                a = actions[batch_idx]
+                adv = advantages[batch_idx]
+                ret = returns[batch_idx]
+                old_log = old_log_prob[batch_idx]
+                old_pol = old_policies[batch_idx]
+
+                policies,values = net(s)
+
+                policies = policies.view(-1, net.num_outputs)
+                # PPO1
+                log_policies = (torch.log(policies + 1e-8) * a).sum(dim=1)
+
+                ratio = torch.exp(log_policies - old_log)
+
+                kl = cls.kl_divergence(policies, old_pol)
+
+                actor_loss = -(ratio*adv-beta*kl).mean() # 注意参照重要性采样，优化目标函数和策略梯度不一样了
+                critic_loss = F.mse_loss(values.view(-1), ret)
+
+                entropy = -(policies * torch.log(policies + 1e-8)).sum(dim=1).mean()# 对整个整个batch求平均
+
+                loss = actor_loss + critic_coefficient * critic_loss - entropy_coefficient * entropy
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+        return loss
+    
+    def get_action(self, input):
+        with torch.no_grad():
+            policy, _ = self.forward(input)
+            policy = policy.squeeze(0).detach().cpu().numpy()
+
+            action = np.random.choice(self.num_outputs, 1, p=policy)[0]
         return action
