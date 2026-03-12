@@ -1,7 +1,26 @@
 # 从 0 开始手写强化学习
 
-本项目整理作者从零实现的深度强化学习算法，包括学习笔记
-学习笔记参考Easy-RL
+本项目整理作者从零实现的深度强化学习算法，包括学习笔记.学习笔记参考Easy-RL
+## 推荐的学习与实现顺序
+1. 基础知识
+2. 基于表格的强化学习
+3. 策略梯度
+    - Reinforce
+4. Q学习：
+    - DQN
+    - Double DQN
+    - Dueling DQN
+    - Noisy DQN
+    - PER DQN
+    - Distributional DQN C51
+    - Multistep DQN
+    - Rainbow
+5. Actor-Critic
+    - A2C
+    - GAE
+    - TNPG
+    - TRPO
+    - PPO
 
 ## 目录结构
 
