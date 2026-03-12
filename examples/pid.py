@@ -1,4 +1,7 @@
-import gym
+try:
+    import gymnasium as gym
+except ModuleNotFoundError:
+    import gym
 from matplotlib import animation
 import matplotlib.pyplot as plt
  

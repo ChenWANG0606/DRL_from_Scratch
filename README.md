@@ -4,9 +4,9 @@
 ## 推荐的学习与实现顺序
 1. 基础知识
 2. 基于表格的强化学习
-3. 策略梯度
+3. 策略梯度基础
     - Reinforce
-4. Q学习：
+4. 深度Q学习及其改进版本：
     - DQN
     - Double DQN
     - Dueling DQN
@@ -15,7 +15,7 @@
     - Distributional DQN C51
     - Multistep DQN
     - Rainbow
-5. Actor-Critic
+5. Actor-Critic进阶
     - A2C
     - GAE
     - TNPG
