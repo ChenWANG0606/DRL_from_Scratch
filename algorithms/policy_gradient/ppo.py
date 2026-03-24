@@ -91,8 +91,9 @@ class PPO1(nn.Module):
                 policies, values = net(sample_states)
                 policies = policies.view(-1, net.num_outputs)
                 log_policies = (torch.log(policies + 1e-8) * sample_actions).sum(dim=1)
+                # 注意这里 是对重要性采样的比值进行裁剪
                 ratio = torch.exp(log_policies - sample_old_log)
-
+                # 参见后，比值过大的项会被裁剪成常数，因此反向传播的时候就没有和theta相关的项了，不参与梯度
                 surr1 = ratio * sample_advantages
                 surr2 = torch.clamp(ratio, 1 - clips_eps, 1 + clips_eps) * sample_advantages
 
